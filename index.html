@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>МЛЕЧНЫЙ ПУТЬ — АТЛАС ГАЛАКТИКИ v3.0</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+  #three-canvas { display: block; position: fixed; top: 0; left: 0; }
+
+  /* HUD */
+  #title { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.6); font-size: 11px; letter-spacing: 4px; text-transform: uppercase; z-index: 10; pointer-events: none; }
+  #scanline { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.025) 2px, rgba(0,0,0,0.025) 4px); pointer-events: none; z-index: 5; }
+
+  #hud-left { position: fixed; left: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; z-index: 10; pointer-events: none; }
+  #hud-right { position: fixed; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; align-items: flex-end; z-index: 10; pointer-events: none; }
+  .hud-panel { background: rgba(0,255,200,0.05); border: 0.5px solid rgba(0,255,200,0.22); border-radius: 8px; padding: 10px 14px; color: rgba(0,255,200,0.8); font-size: 11px; min-width: 150px; backdrop-filter: blur(6px); }
+  .hud-label { color: rgba(0,255,200,0.4); font-size: 9px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 3px; }
+  .hud-value { font-size: 14px; font-weight: bold; color: rgba(0,255,200,0.9); }
+
+  /* Gesture indicator */
+  #gesture-panel {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); border: 0.5px solid rgba(0,255,200,0.3);
+    border-radius: 12px; padding: 12px 28px; color: rgba(0,255,200,0.9);
+    font-size: 13px; text-align: center; z-index: 10; letter-spacing: 1px;
+    backdrop-filter: blur(10px); transition: opacity 0.4s;
+  }
+  #gesture-icon { font-size: 22px; margin-right: 8px; }
+
+  /* Instructions */
+  #instructions { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 16px; z-index: 10; pointer-events: none; }
+  .instr { background: rgba(255,255,255,0.04); border: 0.5px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 5px 14px; color: rgba(255,255,255,0.35); font-size: 10px; letter-spacing: 1px; }
+
+  /* Camera feed */
+  #cam-container {
+    position: fixed; bottom: 20px; right: 20px; width: 200px; height: 150px;
+    border: 1px solid rgba(0,255,200,0.25); border-radius: 8px; overflow: hidden;
+    z-index: 20; background: #000;
+  }
+  #cam-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.75; }
+  #cam-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); }
+  #cam-label { position: absolute; top: 4px; left: 8px; font-size: 9px; color: rgba(0,255,200,0.6); letter-spacing: 2px; }
+  #cam-status { position: absolute; bottom: 4px; right: 8px; font-size: 9px; color: rgba(0,255,200,0.5); }
+
+  /* Loading overlay */
+  #loading {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #000010; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; z-index: 100; color: rgba(0,255,200,0.8); gap: 16px;
+  }
+  #loading .load-title { font-size: 18px; letter-spacing: 6px; }
+  #loading .load-bar { width: 300px; height: 2px; background: rgba(0,255,200,0.1); border-radius: 2px; overflow: hidden; }
+  #loading .load-fill { height: 100%; background: rgba(0,255,200,0.7); width: 0%; transition: width 0.3s; }
+  #loading .load-msg { font-size: 10px; color: rgba(0,255,200,0.4); letter-spacing: 2px; }
+
+  #cam-enable-btn {
+    position: fixed; top: 20px; right: 20px; z-index: 30;
+    background: rgba(0,255,200,0.1); border: 1px solid rgba(0,255,200,0.4);
+    color: rgba(0,255,200,0.9); padding: 8px 16px; border-radius: 6px;
+    font-family: 'Courier New', monospace; font-size: 11px; cursor: pointer;
+    letter-spacing: 1px; transition: background 0.2s;
+  }
+  #cam-enable-btn:hover { background: rgba(0,255,200,0.2); }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="load-title">GALAXY ATLAS v3.0</div>
+  <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
+  <div class="load-msg" id="load-msg">ИНИЦИАЛИЗАЦИЯ...</div>
+</div>
+
+<canvas id="three-canvas"></canvas>
+<div id="scanline"></div>
+<div id="title">МЛЕЧНЫЙ ПУТЬ — АТЛАС ГАЛАКТИКИ v3.0</div>
+
+<div id="hud-left">
+  <div class="hud-panel">
+    <div class="hud-label">Координаты X</div>
+    <div class="hud-value" id="hud-x">8.300 кпк</div>
+  </div>
+  <div class="hud-panel">
+    <div class="hud-label">Координаты Y/Z</div>
+    <div class="hud-value" id="hud-y">0.000 / 0.000</div>
+  </div>
+  <div class="hud-panel">
+    <div class="hud-label">Объектов</div>
+    <div class="hud-value" id="hud-count">—</div>
+  </div>
+</div>
+
+<div id="hud-right">
+  <div class="hud-panel" style="text-align:right">
+    <div class="hud-label">Масштаб</div>
+    <div class="hud-value" id="hud-zoom">1.00x</div>
+  </div>
+  <div class="hud-panel" style="text-align:right">
+    <div class="hud-label">Жест</div>
+    <div class="hud-value" id="hud-gesture">—</div>
+  </div>
+  <div class="hud-panel" style="text-align:right">
+    <div class="hud-label">FPS</div>
+    <div class="hud-value" id="hud-fps">—</div>
+  </div>
+</div>
+
+<div id="gesture-panel">
+  <span id="gesture-icon">✋</span><span id="gesture-text">Жест не определён</span>
+</div>
+
+<div id="instructions">
+  <div class="instr">✊ КУЛАК — ВРАЩЕНИЕ</div>
+  <div class="instr">🤏 ПИНЧ — МАСШТАБ</div>
+  <div class="instr">✋ ЛАДОНЬ — ПАНОРАМА</div>
+  <div class="instr">🖱 МЫШЬ — ТОЖ</div>
+</div>
+
+<button id="cam-enable-btn" onclick="enableCamera()">📷 ВКЛЮЧИТЬ КАМЕРУ</button>
+
+<div id="cam-container" style="display:none">
+  <video id="cam-video" autoplay muted playsinline></video>
+  <canvas id="cam-canvas"></canvas>
+  <div class="cam-label">CAM</div>
+  <div id="cam-status">ОЖИДАНИЕ</div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ─── LOADING ────────────────────────────────────────────────
+function setLoad(pct, msg) {
+  document.getElementById('load-fill').style.width = pct + '%';
+  document.getElementById('load-msg').textContent = msg;
+}
+
+// ─── THREE.JS SETUP ─────────────────────────────────────────
+const canvas3 = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas: canvas3, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000008);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200000);
+camera.position.set(0, 0, 1200);
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ─── STAR GEOMETRY FROM JSON ─────────────────────────────────
+let starsGroup = new THREE.Group();
+scene.add(starsGroup);
+
+let starsLoaded = 0;
+
+setLoad(10, 'ЗАГРУЗКА ЗВЁЗДНЫХ ДАННЫХ...');
+
+fetch('stars_data.json')
+  .then(r => r.json())
+  .then(data => {
+    setLoad(50, 'СОЗДАНИЕ ЧАСТИЦ...');
+    buildStars(data);
+    setLoad(90, 'ФИНАЛИЗАЦИЯ СЦЕНЫ...');
+    setTimeout(() => {
+      document.getElementById('load-fill').style.width = '100%';
+      document.getElementById('load-msg').textContent = 'ГОТОВО';
+      setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 400);
+    }, 300);
+  })
+  .catch(() => {
+    // Fallback: generate procedural stars if JSON not available
+    setLoad(50, 'JSON НЕ НАЙДЕН — ГЕНЕРАЦИЯ...');
+    const fallback = [];
+    for (let i = 0; i < 8000; i++) {
+      const r = Math.pow(Math.random(), 0.5) * 2000;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = (Math.random() - 0.5) * 0.3;
+      fallback.push({
+        x: r * Math.cos(theta),
+        y: r * Math.sin(phi) * 80,
+        z: r * Math.sin(theta),
+        mag: 3 + Math.random() * 10
+      });
+    }
+    buildStars(fallback);
+    setLoad(100, 'ГОТОВО (ПРОЦЕДУРНЫЕ ДАННЫЕ)');
+    setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 500);
+  });
+
+function buildStars(data) {
+  starsLoaded = data.length;
+  document.getElementById('hud-count').textContent = starsLoaded.toLocaleString();
+
+  // Split into brightness tiers for visual quality
+  const tiers = [
+    { threshold: 6,   size: 4.5, opacity: 1.0,  color: 0xfff0cc },
+    { threshold: 8,   size: 2.8, opacity: 0.9,  color: 0xddeeff },
+    { threshold: 10,  size: 1.8, opacity: 0.7,  color: 0xaaccff },
+    { threshold: 999, size: 1.0, opacity: 0.45, color: 0x8899cc },
+  ];
+
+  const groups = tiers.map(() => ({ positions: [], count: 0 }));
+
+  for (const s of data) {
+    let ti = 3;
+    for (let i = 0; i < tiers.length; i++) {
+      if (s.mag < tiers[i].threshold) { ti = i; break; }
+    }
+    groups[ti].positions.push(s.x, s.z, s.y); // remap Y/Z for galactic plane
+    groups[ti].count++;
+  }
+
+  for (let ti = 0; ti < tiers.length; ti++) {
+    if (groups[ti].count === 0) continue;
+    const t = tiers[ti];
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(groups[ti].positions, 3));
+    const mat = new THREE.PointsMaterial({
+      color: t.color,
+      size: t.size,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: t.opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const pts = new THREE.Points(geo, mat);
+    starsGroup.add(pts);
+  }
+
+  // Galactic core glow
+  const coreGeo = new THREE.SphereGeometry(40, 16, 16);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xffdd88, transparent: true, opacity: 0.12,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  scene.add(new THREE.Mesh(coreGeo, coreMat));
+
+  // Outer glow halo
+  const haloGeo = new THREE.SphereGeometry(120, 16, 16);
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0xff8844, transparent: true, opacity: 0.04,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide
+  });
+  scene.add(new THREE.Mesh(haloGeo, haloMat));
+}
+
+// ─── CAMERA CONTROLS ─────────────────────────────────────────
+// Spherical camera orbit
+let spherical = { theta: 0, phi: Math.PI / 2.5, radius: 1200 };
+let targetSpherical = { ...spherical };
+let panOffset = new THREE.Vector3(0, 0, 0);
+let targetPan = new THREE.Vector3(0, 0, 0);
+
+function updateCamera() {
+  // Smooth interpolation
+  spherical.theta += (targetSpherical.theta - spherical.theta) * 0.08;
+  spherical.phi   += (targetSpherical.phi   - spherical.phi)   * 0.08;
+  spherical.radius += (targetSpherical.radius - spherical.radius) * 0.07;
+  spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+  spherical.radius = Math.max(50, Math.min(8000, spherical.radius));
+
+  panOffset.lerp(targetPan, 0.08);
+
+  camera.position.set(
+    spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta) + panOffset.x,
+    spherical.radius * Math.cos(spherical.phi) + panOffset.y,
+    spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta) + panOffset.z
+  );
+  camera.lookAt(panOffset);
+}
+
+// Mouse orbit
+let mouseDown = false, lastMX = 0, lastMY = 0;
+canvas3.addEventListener('mousedown', e => { mouseDown = true; lastMX = e.clientX; lastMY = e.clientY; });
+document.addEventListener('mouseup', () => { mouseDown = false; });
+document.addEventListener('mousemove', e => {
+  if (!mouseDown) return;
+  const dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+  lastMX = e.clientX; lastMY = e.clientY;
+  targetSpherical.theta -= dx * 0.006;
+  targetSpherical.phi   -= dy * 0.006;
+});
+document.addEventListener('wheel', e => {
+  targetSpherical.radius *= e.deltaY > 0 ? 1.08 : 0.92;
+  document.getElementById('hud-zoom').textContent = (1200 / targetSpherical.radius).toFixed(2) + 'x';
+});
+
+// ─── GESTURE CONTROL ─────────────────────────────────────────
+let gestureState = {
+  type: 'none',       // 'fist' | 'pinch' | 'palm' | 'none'
+  prevX: 0, prevY: 0, // normalized 0-1 hand center
+  prevDist: 0,        // pinch distance in normalized units
+  active: false,
+  smoothX: 0.5, smoothY: 0.5
+};
+
+const GESTURE_SMOOTHING = 0.35;
+
+function classifyGesture(landmarks) {
+  // landmarks: array of 21 {x,y,z} normalized to [0,1]
+  const lm = landmarks;
+
+  // Finger tip IDs: thumb=4, index=8, middle=12, ring=16, pinky=20
+  // MCP (knuckle) IDs: index=5, middle=9, ring=13, pinky=17
+  // Wrist: 0, Palm center: average of 0,5,9,13,17
+
+  const wrist = lm[0];
+  const palmCenter = {
+    x: (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5,
+    y: (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5,
+  };
+
+  // Finger extension: tip vs pip (second joint) vertical distance
+  // If tip is above pip (smaller y in image coords) → extended
+  function isExtended(tipIdx, pipIdx) {
+    return lm[tipIdx].y < lm[pipIdx].y;
+  }
+
+  const thumbExt  = lm[4].x < lm[3].x; // thumb goes sideways
+  const indexExt  = isExtended(8,  6);
+  const middleExt = isExtended(12, 10);
+  const ringExt   = isExtended(16, 14);
+  const pinkyExt  = isExtended(20, 18);
+
+  const extCount = [indexExt, middleExt, ringExt, pinkyExt].filter(Boolean).length;
+
+  // Pinch: thumb tip close to index tip
+  const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+  if (pinchDist < 0.07) return 'pinch';
+
+  // Fist: all fingers curled
+  if (extCount === 0) return 'fist';
+
+  // Palm: 3+ fingers extended
+  if (extCount >= 3) return 'palm';
+
+  return 'none';
+}
+
+function applyGestureControl(landmarks, gesture) {
+  // Center of palm (use middle finger base as anchor)
+  const cx = landmarks[9].x;
+  const cy = landmarks[9].y;
+
+  // Smooth the position
+  gestureState.smoothX += (cx - gestureState.smoothX) * GESTURE_SMOOTHING;
+  gestureState.smoothY += (cy - gestureState.smoothY) * GESTURE_SMOOTHING;
+
+  const dx = gestureState.smoothX - gestureState.prevX;
+  const dy = gestureState.smoothY - gestureState.prevY;
+
+  if (gestureState.type !== gesture) {
+    // On gesture change, reset prev so no jump
+    gestureState.prevX = gestureState.smoothX;
+    gestureState.prevY = gestureState.smoothY;
+    gestureState.type = gesture;
+    gestureState.prevDist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
+    return;
+  }
+
+  if (gesture === 'fist') {
+    // Rotate: hand movement → orbit angles
+    targetSpherical.theta -= dx * 6.0;
+    targetSpherical.phi   += dy * 4.0;
+  } else if (gesture === 'pinch') {
+    // Zoom: pinch distance change → radius
+    const dist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
+    const delta = dist - gestureState.prevDist;
+    targetSpherical.radius *= (1 - delta * 12);
+    document.getElementById('hud-zoom').textContent = (1200 / targetSpherical.radius).toFixed(2) + 'x';
+    gestureState.prevDist = dist;
+  } else if (gesture === 'palm') {
+    // Pan: move camera target in world space
+    const panSpeed = spherical.radius * 0.8;
+    targetPan.x -= dx * panSpeed;
+    targetPan.y += dy * panSpeed;
+  }
+
+  gestureState.prevX = gestureState.smoothX;
+  gestureState.prevY = gestureState.smoothY;
+}
+
+// Gesture UI
+const gestureLabels = {
+  fist:  ['✊', 'ВРАЩЕНИЕ'],
+  pinch: ['🤏', 'МАСШТАБ'],
+  palm:  ['✋', 'ПАНОРАМА'],
+  none:  ['🖐', 'НЕТ ЖЕСТА'],
+};
+let lastGestureType = '';
+
+function updateGestureHUD(gesture) {
+  if (gesture === lastGestureType) return;
+  lastGestureType = gesture;
+  const [icon, text] = gestureLabels[gesture] || ['—', '—'];
+  document.getElementById('gesture-icon').textContent = icon;
+  document.getElementById('gesture-text').textContent = text;
+  document.getElementById('hud-gesture').textContent = text;
+}
+
+// ─── MEDIAPIPE SETUP ─────────────────────────────────────────
+let handsReady = false;
+let handsDetector = null;
+let mpCamera = null;
+const videoEl  = document.getElementById('cam-video');
+const camCanvas = document.getElementById('cam-canvas');
+const camCtx   = camCanvas.getContext('2d');
+
+function enableCamera() {
+  document.getElementById('cam-enable-btn').textContent = '⏳ ПОДКЛЮЧЕНИЕ...';
+  document.getElementById('cam-enable-btn').disabled = true;
+
+  // Init MediaPipe Hands
+  handsDetector = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+
+  handsDetector.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.6
+  });
+
+  handsDetector.onResults(onHandResults);
+
+  mpCamera = new Camera(videoEl, {
+    onFrame: async () => {
+      if (handsDetector) await handsDetector.send({ image: videoEl });
+    },
+    width: 320, height: 240
+  });
+
+  mpCamera.start()
+    .then(() => {
+      handsReady = true;
+      document.getElementById('cam-container').style.display = 'block';
+      document.getElementById('cam-enable-btn').textContent = '✅ КАМЕРА АКТИВНА';
+      document.getElementById('cam-status').textContent = 'АКТИВНО';
+    })
+    .catch(err => {
+      console.error('Camera error:', err);
+      document.getElementById('cam-enable-btn').textContent = '❌ НЕТ ДОСТУПА';
+      document.getElementById('cam-enable-btn').disabled = false;
+    });
+}
+
+function onHandResults(results) {
+  // Draw skeleton on minimap
+  const vw = videoEl.videoWidth  || 320;
+  const vh = videoEl.videoHeight || 240;
+  camCanvas.width  = camCanvas.offsetWidth  || 200;
+  camCanvas.height = camCanvas.offsetHeight || 150;
+  camCtx.clearRect(0, 0, camCanvas.width, camCanvas.height);
+
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    updateGestureHUD('none');
+    gestureState.type = 'none';
+    return;
+  }
+
+  const lm = results.multiHandLandmarks[0];
+  const gesture = classifyGesture(lm);
+  applyGestureControl(lm, gesture);
+  updateGestureHUD(gesture);
+
+  // Draw skeleton
+  const W = camCanvas.width, H = camCanvas.height;
+  // Connections (MediaPipe hand topology)
+  const connections = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],
+    [0,17]
+  ];
+  const gestureColor = { fist: '#ff6644', pinch: '#ffdd44', palm: '#44ffcc', none: '#88aaff' };
+  const col = gestureColor[gesture] || '#88aaff';
+
+  camCtx.strokeStyle = col;
+  camCtx.lineWidth = 1.5;
+  camCtx.globalAlpha = 0.8;
+  for (const [a, b] of connections) {
+    camCtx.beginPath();
+    // flip X because video is mirrored
+    camCtx.moveTo((1 - lm[a].x) * W, lm[a].y * H);
+    camCtx.lineTo((1 - lm[b].x) * W, lm[b].y * H);
+    camCtx.stroke();
+  }
+  camCtx.globalAlpha = 1;
+  for (let i = 0; i < lm.length; i++) {
+    const r = [4, 8, 12, 16, 20].includes(i) ? 5 : 3;
+    camCtx.beginPath();
+    camCtx.arc((1 - lm[i].x) * W, lm[i].y * H, r, 0, Math.PI * 2);
+    camCtx.fillStyle = [4, 8].includes(i) ? '#ffffff' : col;
+    camCtx.fill();
+  }
+}
+
+// ─── RENDER LOOP ─────────────────────────────────────────────
+let lastTime = performance.now();
+let frames = 0, fpsTimer = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const now = performance.now();
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  frames++; fpsTimer += dt;
+  if (fpsTimer > 0.5) {
+    document.getElementById('hud-fps').textContent = Math.round(frames / fpsTimer);
+    frames = 0; fpsTimer = 0;
+  }
+
+  // Slow rotation of star field
+  starsGroup.rotation.y += 0.00004;
+
+  updateCamera();
+
+  // Update HUD coords
+  const r = spherical.radius;
+  document.getElementById('hud-x').textContent = (8.3 + panOffset.x * 0.0002).toFixed(3) + ' кпк';
+  document.getElementById('hud-y').textContent = (panOffset.y * 0.0002).toFixed(3) + ' / ' + (panOffset.z * 0.0002).toFixed(3);
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
